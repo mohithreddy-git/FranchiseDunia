@@ -1,5 +1,6 @@
 const User = require('../models/User');
 const {
+  hashToken,
   generateTokens,
   setAuthCookies,
   clearAuthCookies,
@@ -8,7 +9,7 @@ const {
 const ApiError = require('../utils/apiError');
 const ApiResponse = require('../utils/apiResponse');
 
-// Register a new user (Strictly non-admin roles only)
+// Register a new user (Strictly non-admin roles only; cookie-only auth)
 const register = async (req, res, next) => {
   try {
     const { name, email, password, role, phone, city, company } = req.body;
@@ -28,8 +29,16 @@ const register = async (req, res, next) => {
       company,
     });
 
-    const { accessToken, refreshToken } = generateTokens(user);
-    user.refreshTokens = [{ token: refreshToken, createdAt: new Date() }];
+    const { accessToken, refreshToken, sessionId } = generateTokens(user);
+    user.sessions = [
+      {
+        sessionId,
+        tokenHash: hashToken(refreshToken),
+        previousTokenHash: null,
+        createdAt: new Date(),
+        lastUsedAt: new Date(),
+      },
+    ];
     await user.save();
 
     setAuthCookies(res, accessToken, refreshToken);
@@ -45,15 +54,16 @@ const register = async (req, res, next) => {
       isVerified: user.isVerified,
     };
 
+    // STRICT: Return user only. No accessToken/refreshToken in JSON body!
     return res
       .status(201)
-      .json(new ApiResponse(201, { user: safeUser, accessToken }, 'Registration successful'));
+      .json(new ApiResponse(201, { user: safeUser }, 'Registration successful'));
   } catch (err) {
     next(err);
   }
 };
 
-// Login user
+// Login user (cookie-only auth)
 const login = async (req, res, next) => {
   try {
     const { email, password } = req.body;
@@ -68,12 +78,18 @@ const login = async (req, res, next) => {
       return next(new ApiError(401, 'Invalid email or password'));
     }
 
-    const { accessToken, refreshToken } = generateTokens(user);
+    const { accessToken, refreshToken, sessionId } = generateTokens(user);
 
-    // Keep up to 5 most recent refresh tokens for rotation
-    const activeTokens = (user.refreshTokens || []).slice(-4);
-    activeTokens.push({ token: refreshToken, createdAt: new Date() });
-    user.refreshTokens = activeTokens;
+    // Maintain up to 5 active sessions
+    const activeSessions = (user.sessions || []).slice(-4);
+    activeSessions.push({
+      sessionId,
+      tokenHash: hashToken(refreshToken),
+      previousTokenHash: null,
+      createdAt: new Date(),
+      lastUsedAt: new Date(),
+    });
+    user.sessions = activeSessions;
     await user.save();
 
     setAuthCookies(res, accessToken, refreshToken);
@@ -89,18 +105,19 @@ const login = async (req, res, next) => {
       isVerified: user.isVerified,
     };
 
+    // STRICT: Return user only. No accessToken in JSON body!
     return res
       .status(200)
-      .json(new ApiResponse(200, { user: safeUser, accessToken }, 'Login successful'));
+      .json(new ApiResponse(200, { user: safeUser }, 'Login successful'));
   } catch (err) {
     next(err);
   }
 };
 
-// Refresh token with rotation
+// Refresh token with rotation & replay/reuse attack detection
 const refreshTokenHandler = async (req, res, next) => {
   try {
-    const oldRefreshToken = req.cookies?.refreshToken || req.body?.refreshToken;
+    const oldRefreshToken = req.cookies?.refreshToken;
 
     if (!oldRefreshToken) {
       return next(new ApiError(401, 'Refresh token not found. Please log in again.'));
@@ -120,41 +137,52 @@ const refreshTokenHandler = async (req, res, next) => {
       return next(new ApiError(401, 'User account no longer exists.'));
     }
 
-    // Verify token exists in user's active rotation list
-    const tokenIndex = (user.refreshTokens || []).findIndex((t) => t.token === oldRefreshToken);
-    if (tokenIndex === -1) {
-      // Token reuse anomaly detected! Revoke all tokens for safety
-      user.refreshTokens = [];
-      await user.save();
+    const presentedHash = hashToken(oldRefreshToken);
+    const session = (user.sessions || []).find((s) => s.sessionId === decoded.sessionId);
+
+    if (!session) {
       clearAuthCookies(res);
-      return next(new ApiError(403, 'Session compromised or already rotated. Please log in again.'));
+      return next(new ApiError(401, 'Session not recognized. Please log in again.'));
     }
 
-    // Rotate tokens
-    const { accessToken, refreshToken: newRefreshToken } = generateTokens(user);
+    // REUSE DETECTION: If an already-rotated token hash is presented, revoke that session immediately!
+    if (session.previousTokenHash === presentedHash) {
+      user.sessions = user.sessions.filter((s) => s.sessionId !== decoded.sessionId);
+      await user.save();
+      clearAuthCookies(res);
+      return next(new ApiError(401, 'Refresh token reuse detected. Session revoked.'));
+    }
 
-    // Remove old token and append new token
-    user.refreshTokens.splice(tokenIndex, 1);
-    user.refreshTokens.push({ token: newRefreshToken, createdAt: new Date() });
+    // Token must match current active tokenHash
+    if (session.tokenHash !== presentedHash) {
+      user.sessions = user.sessions.filter((s) => s.sessionId !== decoded.sessionId);
+      await user.save();
+      clearAuthCookies(res);
+      return next(new ApiError(401, 'Token mismatch detected. Session revoked.'));
+    }
+
+    // Rotate: generate new tokens reusing the sessionId
+    const { accessToken, refreshToken: newRefreshToken } = generateTokens(user, session.sessionId);
+
+    // Update session: move current hash to previousTokenHash, set new hash
+    session.previousTokenHash = presentedHash;
+    session.tokenHash = hashToken(newRefreshToken);
+    session.lastUsedAt = new Date();
     await user.save();
 
     setAuthCookies(res, accessToken, newRefreshToken);
 
-    return res.status(200).json(
-      new ApiResponse(
-        200,
-        {
-          accessToken,
-          user: {
-            id: user._id,
-            name: user.name,
-            email: user.email,
-            role: user.role,
-          },
-        },
-        'Token refreshed successfully'
-      )
-    );
+    const safeUser = {
+      id: user._id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+    };
+
+    // STRICT: Return user only. No tokens in body!
+    return res
+      .status(200)
+      .json(new ApiResponse(200, { user: safeUser }, 'Token refreshed successfully'));
   } catch (err) {
     next(err);
   }
@@ -163,12 +191,11 @@ const refreshTokenHandler = async (req, res, next) => {
 // Logout user
 const logout = async (req, res, next) => {
   try {
-    const incomingRefreshToken = req.cookies?.refreshToken || req.body?.refreshToken;
+    const incomingRefreshToken = req.cookies?.refreshToken;
 
     if (incomingRefreshToken && req.user) {
-      req.user.refreshTokens = (req.user.refreshTokens || []).filter(
-        (t) => t.token !== incomingRefreshToken
-      );
+      const tokenHash = hashToken(incomingRefreshToken);
+      req.user.sessions = (req.user.sessions || []).filter((s) => s.tokenHash !== tokenHash);
       await req.user.save();
     }
 
@@ -205,21 +232,31 @@ const demoLogin = async (req, res, next) => {
     }
 
     const { role } = req.body;
-    let user = await User.findOne({ role, email: new RegExp(`demo_${role}@franchisedunia\\.in$`, 'i') });
+    let user = await User.findOne({
+      role,
+      email: new RegExp(`demo_${role}@franchisedunia\\.in$`, 'i'),
+    });
 
-    // Fallback: search for any user with that role
     if (!user) {
       user = await User.findOne({ role });
     }
 
     if (!user) {
-      return next(new ApiError(404, `No demo account found for role: ${role}. Please seed the database.`));
+      return next(
+        new ApiError(404, `No demo account found for role: ${role}. Please seed the database.`)
+      );
     }
 
-    const { accessToken, refreshToken } = generateTokens(user);
-    const activeTokens = (user.refreshTokens || []).slice(-4);
-    activeTokens.push({ token: refreshToken, createdAt: new Date() });
-    user.refreshTokens = activeTokens;
+    const { accessToken, refreshToken, sessionId } = generateTokens(user);
+    const activeSessions = (user.sessions || []).slice(-4);
+    activeSessions.push({
+      sessionId,
+      tokenHash: hashToken(refreshToken),
+      previousTokenHash: null,
+      createdAt: new Date(),
+      lastUsedAt: new Date(),
+    });
+    user.sessions = activeSessions;
     await user.save();
 
     setAuthCookies(res, accessToken, refreshToken);
@@ -235,9 +272,10 @@ const demoLogin = async (req, res, next) => {
       isVerified: user.isVerified,
     };
 
+    // STRICT: Return user only. No accessToken in JSON body!
     return res
       .status(200)
-      .json(new ApiResponse(200, { user: safeUser, accessToken }, `Logged in as demo ${role}`));
+      .json(new ApiResponse(200, { user: safeUser }, `Logged in as demo ${role}`));
   } catch (err) {
     next(err);
   }

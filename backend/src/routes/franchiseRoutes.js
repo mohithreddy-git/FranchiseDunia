@@ -17,9 +17,11 @@ const {
   updateFranchiseSchema,
 } = require('../validations/franchiseValidation');
 
-// Public listing & detail endpoints
-router.get('/', getFranchises);
-router.get('/:slug', getFranchiseBySlug);
+const optionalAuth = require('../middlewares/optionalAuth');
+
+// Public listing & detail endpoints (with optional auth to allow owners/admin to preview pending)
+router.get('/', optionalAuth, getFranchises);
+router.get('/:slug', optionalAuth, getFranchiseBySlug);
 
 // Protected franchise creation & management (brand_owner or admin)
 router.post(

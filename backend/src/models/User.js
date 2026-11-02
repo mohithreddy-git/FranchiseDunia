@@ -43,10 +43,14 @@ const userSchema = new mongoose.Schema(
       trim: true,
       default: '',
     },
-    refreshTokens: [
+    // Sessions with hashed refresh tokens for cryptographic rotation & reuse detection
+    sessions: [
       {
-        token: { type: String, required: true },
+        sessionId: { type: String, required: true },
+        tokenHash: { type: String, required: true },
+        previousTokenHash: { type: String, default: null }, // Detected on replay attack
         createdAt: { type: Date, default: Date.now },
+        lastUsedAt: { type: Date, default: Date.now },
       },
     ],
     isVerified: {

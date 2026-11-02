@@ -65,6 +65,15 @@ export default function FranchiseCard({ franchise }: FranchiseCardProps) {
               )}
             </div>
 
+            {/* Sample listing badge (carry-over fix: seed uses fictional brands) */}
+            {franchise.isSampleData && (
+              <div className="mb-3">
+                <Badge variant="amber" size="sm">
+                  Sample listing
+                </Badge>
+              </div>
+            )}
+
             {/* Tagline */}
             <p className="text-xs text-muted line-clamp-2 min-h-[32px] mb-4 leading-relaxed">
               {franchise.tagline || franchise.description}

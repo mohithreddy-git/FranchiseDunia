@@ -1,25 +1,40 @@
 const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
 
-const ACCESS_SECRET = process.env.JWT_ACCESS_SECRET || 'franchisedunia_dev_access_secret_key_random_string_32_bytes';
-const REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || 'franchisedunia_dev_refresh_secret_key_random_string_32_bytes';
+const ACCESS_SECRET =
+  process.env.JWT_ACCESS_SECRET || 'franchisedunia_dev_access_secret_key_random_string_32_bytes';
+const REFRESH_SECRET =
+  process.env.JWT_REFRESH_SECRET || 'franchisedunia_dev_refresh_secret_key_random_string_32_bytes';
 
-const generateTokens = (user) => {
-  const payload = {
+const hashToken = (token) => {
+  return crypto.createHash('sha256').update(token).digest('hex');
+};
+
+const generateTokens = (user, existingSessionId = null) => {
+  const sessionId = existingSessionId || crypto.randomUUID();
+
+  const accessPayload = {
     id: user._id,
     email: user.email,
     role: user.role,
     name: user.name,
+    sessionId,
   };
 
-  const accessToken = jwt.sign(payload, ACCESS_SECRET, {
+  const refreshPayload = {
+    id: user._id,
+    sessionId,
+  };
+
+  const accessToken = jwt.sign(accessPayload, ACCESS_SECRET, {
     expiresIn: process.env.JWT_ACCESS_EXPIRES_IN || '15m',
   });
 
-  const refreshToken = jwt.sign(payload, REFRESH_SECRET, {
+  const refreshToken = jwt.sign(refreshPayload, REFRESH_SECRET, {
     expiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '7d',
   });
 
-  return { accessToken, refreshToken };
+  return { accessToken, refreshToken, sessionId };
 };
 
 const verifyAccessToken = (token) => {
@@ -42,6 +57,7 @@ const setAuthCookies = (res, accessToken, refreshToken) => {
   // 15-minute access token cookie
   res.cookie('accessToken', accessToken, {
     ...cookieBaseOptions,
+    path: '/',
     maxAge: 15 * 60 * 1000,
   });
 
@@ -61,7 +77,10 @@ const clearAuthCookies = (res) => {
     sameSite: 'lax',
   };
 
-  res.clearCookie('accessToken', cookieBaseOptions);
+  res.clearCookie('accessToken', {
+    ...cookieBaseOptions,
+    path: '/',
+  });
   res.clearCookie('refreshToken', {
     ...cookieBaseOptions,
     path: '/api/v1/auth',
@@ -69,6 +88,7 @@ const clearAuthCookies = (res) => {
 };
 
 module.exports = {
+  hashToken,
   generateTokens,
   verifyAccessToken,
   verifyRefreshToken,

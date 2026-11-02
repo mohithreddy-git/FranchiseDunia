@@ -103,6 +103,15 @@ const getFranchises = async (req, res, next) => {
       query.isFeatured = true;
     }
 
+    // 9. Listing Approval Status: Public endpoints return ONLY 'approved'. Owners see their own at any status.
+    if (req.user && req.user.role === 'admin') {
+      if (req.query.status) query.status = req.query.status;
+    } else if (req.user && req.user.role === 'brand_owner') {
+      query.$or = [{ status: 'approved' }, { brandOwner: req.user._id }];
+    } else {
+      query.status = 'approved';
+    }
+
     // Sorting
     let sortOptions = { isFeatured: -1, createdAt: -1 };
     if (sortBy === 'investment_asc') {
@@ -167,6 +176,18 @@ const getFranchiseBySlug = async (req, res, next) => {
 
     if (!franchise) {
       return next(new ApiError(404, `Franchise listing '${slug}' not found`));
+    }
+
+    // If listing is not approved, only owner or admin can view it
+    if (franchise.status !== 'approved') {
+      const isOwner =
+        req.user &&
+        franchise.brandOwner &&
+        franchise.brandOwner._id.toString() === req.user._id.toString();
+      const isAdmin = req.user && req.user.role === 'admin';
+      if (!isOwner && !isAdmin) {
+        return next(new ApiError(404, `Franchise listing '${slug}' not found`));
+      }
     }
 
     return res

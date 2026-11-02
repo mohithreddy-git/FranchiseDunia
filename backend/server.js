@@ -14,8 +14,13 @@ const errorHandler = require('./src/middlewares/errorHandler');
 const ApiError = require('./src/utils/apiError');
 const ApiResponse = require('./src/utils/apiResponse');
 
+const csrfProtection = require('./src/middlewares/csrfMiddleware');
+
 const authRoutes = require('./src/routes/authRoutes');
 const franchiseRoutes = require('./src/routes/franchiseRoutes');
+const eventRoutes = require('./src/routes/eventRoutes');
+const businessRoutes = require('./src/routes/businessRoutes');
+const adminRoutes = require('./src/routes/adminRoutes');
 const leadRoutes = require('./src/routes/leadRoutes');
 
 const app = express();
@@ -28,12 +33,13 @@ app.use(helmet());
 const allowedOrigins = [
   process.env.FRONTEND_URL || 'http://localhost:3000',
   'http://localhost:3001',
+  'http://localhost:5001',
   'http://127.0.0.1:3000',
+  'http://127.0.0.1:5001',
 ];
 app.use(
   cors({
     origin: (origin, callback) => {
-      // allow requests with no origin (like mobile apps, curl, postman)
       if (!origin || allowedOrigins.includes(origin)) {
         return callback(null, true);
       }
@@ -50,14 +56,17 @@ app.use(cookieParser());
 
 // 4. Data Sanitization against NoSQL query injection & HTTP Parameter Pollution
 app.use(mongoSanitize());
-app.use(hpp({ whitelist: ['industry', 'city', 'availableLocations', 'sortBy', 'page', 'limit'] }));
+app.use(hpp({ whitelist: ['industry', 'city', 'availableLocations', 'sortBy', 'page', 'limit', 'type', 'region'] }));
 
-// 5. HTTP Request Logging
+// 5. CSRF Protection for mutating requests
+app.use(csrfProtection);
+
+// 6. HTTP Request Logging
 if (process.env.NODE_ENV !== 'test') {
   app.use(morgan('dev'));
 }
 
-// 6. General API Rate Limiting
+// 7. General API Rate Limiting
 const globalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 1000,
@@ -66,7 +75,7 @@ const globalLimiter = rateLimit({
 });
 app.use('/api', globalLimiter);
 
-// 7. Healthcheck Route
+// 8. Healthcheck Route
 app.get('/api/health', (req, res) => {
   res.status(200).json(
     new ApiResponse(
@@ -83,9 +92,12 @@ app.get('/api/health', (req, res) => {
   );
 });
 
-// 8. Mount Application Routes
+// 9. Mount Application Routes
 app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/franchises', franchiseRoutes);
+app.use('/api/v1/events', eventRoutes);
+app.use('/api/v1/business-for-sale', businessRoutes);
+app.use('/api/v1/admin', adminRoutes);
 app.use('/api/v1/leads', leadRoutes);
 
 // 9. Catch-all for undefined routes

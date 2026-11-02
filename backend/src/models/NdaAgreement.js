@@ -8,7 +8,7 @@ const ndaAgreementSchema = new mongoose.Schema(
       required: true,
       index: true,
     },
-    businessId: {
+    business: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'BusinessForSale',
       required: true,
@@ -20,7 +20,7 @@ const ndaAgreementSchema = new mongoose.Schema(
     },
     signedName: {
       type: String,
-      required: true,
+      required: [true, 'Legal signed name is required'],
       trim: true,
     },
     ipAddress: {
@@ -39,7 +39,7 @@ const ndaAgreementSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-// Unique compound index on (user, businessId)
-ndaAgreementSchema.index({ user: 1, businessId: 1 }, { unique: true });
+// Unique compound index on (user, business) guarantees idempotency & single active agreement per listing
+ndaAgreementSchema.index({ user: 1, business: 1 }, { unique: true });
 
 module.exports = mongoose.model('NdaAgreement', ndaAgreementSchema);
