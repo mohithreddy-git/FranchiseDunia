@@ -82,6 +82,10 @@ const businessForSaleSchema = new mongoose.Schema(
       default: 'pending',
       index: true,
     },
+    rejectionReason: {
+      type: String,
+      default: null,
+    },
     isVerified: {
       type: Boolean,
       default: true,

@@ -10,6 +10,7 @@ const {
   createEvent,
   updateEvent,
   deleteEvent,
+  exportAttendeesCsv,
 } = require('../controllers/eventController');
 
 const authenticate = require('../middlewares/authMiddleware');
@@ -23,11 +24,14 @@ router.get('/', optionalAuth, getEvents);
 router.get('/:slug/calendar.ics', getEventIcs);
 router.get('/:slug', optionalAuth, getEventBySlug);
 
-// RSVP / Ticket registration (Authenticated attendees)
+// RSVP endpoints
 router.post('/:id/register', authenticate, registerForEvent);
 router.delete('/:id/register', authenticate, cancelRegistration);
 
-// Event management (Organizer or Admin)
+// CSV attendee export endpoint (Organizer or Admin only)
+router.get('/:id/attendees.csv', authenticate, exportAttendeesCsv);
+
+// Organizer & Admin endpoints
 router.post(
   '/',
   authenticate,
@@ -44,11 +48,6 @@ router.put(
   updateEvent
 );
 
-router.delete(
-  '/:id',
-  authenticate,
-  authorize('event_organizer', 'admin'),
-  deleteEvent
-);
+router.delete('/:id', authenticate, authorize('event_organizer', 'admin'), deleteEvent);
 
 module.exports = router;

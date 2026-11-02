@@ -39,7 +39,18 @@ export default function LoginPage() {
     try {
       const res = await api.auth.login({ email, password });
       setUser(res.user);
-      router.push('/franchises');
+      
+      // Open-redirect safe returnTo parameter validation
+      const rawReturnTo = new URLSearchParams(window.location.search).get('returnTo');
+      let safePath = '/franchises';
+      if (rawReturnTo) {
+        if (/^\/(?!\/)/.test(rawReturnTo)) {
+          safePath = rawReturnTo;
+        } else {
+          safePath = '/dashboard';
+        }
+      }
+      router.push(safePath);
     } catch (err: any) {
       setError(err.message || 'Login failed. Please check your credentials.');
     } finally {

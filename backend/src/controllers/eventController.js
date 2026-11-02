@@ -4,6 +4,9 @@ const EventRegistration = require('../models/EventRegistration');
 const ApiError = require('../utils/apiError');
 const ApiResponse = require('../utils/apiResponse');
 const { generateIcs, generateGoogleCalendarUrl } = require('../utils/calendar');
+const { attachSavedFlags } = require('../utils/savedHelper');
+const { hasKeyFieldChanged } = require('../utils/keyFields');
+const { generateSanitizedCsv } = require('../utils/csvSanitizer');
 
 const createSlug = (text) => {
   return text
@@ -30,7 +33,7 @@ const getEvents = async (req, res, next) => {
 
     const query = {};
 
-    // 1. Approval status filter (Public sees only approved; organizer sees own; admin sees all)
+    // 1. Approval status filter
     if (req.user && req.user.role === 'admin') {
       if (req.query.status) query.status = req.query.status;
     } else if (req.user && req.user.role === 'event_organizer') {
@@ -65,17 +68,20 @@ const getEvents = async (req, res, next) => {
       query.startDate = { $gte: new Date() };
     }
 
-    // Pagination
+    // Pagination: Capped at max 50 per page
     const pageNum = Math.max(1, parseInt(page, 10) || 1);
-    const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 12));
+    const limitNum = Math.min(50, Math.max(1, parseInt(limit, 10) || 12));
     const skip = (pageNum - 1) * limitNum;
 
     const total = await Event.countDocuments(query);
-    const events = await Event.find(query)
+    const rawEvents = await Event.find(query)
       .sort({ startDate: 1 })
       .skip(skip)
       .limit(limitNum)
       .populate('organizer', 'name email company');
+
+    // Attach isSaved flags with ONE single query
+    const events = await attachSavedFlags(rawEvents, 'event', req.user);
 
     return res.status(200).json(
       new ApiResponse(
@@ -102,7 +108,6 @@ const getEventBySlug = async (req, res, next) => {
 
     let event = await Event.findOne({ slug }).populate('organizer', 'name email company phone');
 
-    // Fallback: search by _id
     if (!event && slug.match(/^[0-9a-fA-F]{24}$/)) {
       event = await Event.findById(slug).populate('organizer', 'name email company phone');
     }
@@ -111,7 +116,6 @@ const getEventBySlug = async (req, res, next) => {
       return next(new ApiError(404, `Event '${slug}' not found`));
     }
 
-    // Enforce approved visibility
     if (event.status !== 'approved') {
       const isOwner =
         req.user &&
@@ -123,7 +127,6 @@ const getEventBySlug = async (req, res, next) => {
       }
     }
 
-    // Check if authenticated user has already RSVP'd
     let isRegistered = false;
     let userRegistration = null;
     if (req.user) {
@@ -138,11 +141,13 @@ const getEventBySlug = async (req, res, next) => {
     const googleCalendarUrl = generateGoogleCalendarUrl(event);
     const isSoldOut = event.registeredCount >= event.capacity;
 
+    const [withSaved] = await attachSavedFlags([event], 'event', req.user);
+
     return res.status(200).json(
       new ApiResponse(
         200,
         {
-          event,
+          event: withSaved,
           googleCalendarUrl,
           isRegistered,
           ticketCode: userRegistration?.ticketCode || null,
@@ -156,12 +161,11 @@ const getEventBySlug = async (req, res, next) => {
   }
 };
 
-// POST /api/v1/events/:id/register (ATOMIC CAPACITY ENFORCEMENT)
+// POST /api/v1/events/:id/register
 const registerForEvent = async (req, res, next) => {
   try {
     const { id } = req.params;
 
-    // Check if already registered first to avoid unnecessary lock/increments
     const existingRegistration = await EventRegistration.findOne({
       event: id,
       user: req.user._id,
@@ -172,8 +176,7 @@ const registerForEvent = async (req, res, next) => {
       return next(new ApiError(409, 'You have already registered for this event.'));
     }
 
-    // ATOMIC conditional findOneAndUpdate increment: Only succeeds if registeredCount < capacity
-    // Eliminates race conditions with no read-then-write vulnerability
+    // Atomic conditional increment
     const event = await Event.findOneAndUpdate(
       {
         _id: id,
@@ -185,7 +188,6 @@ const registerForEvent = async (req, res, next) => {
     );
 
     if (!event) {
-      // Check if event exists to deliver precise error message
       const checkEvent = await Event.findById(id);
       if (!checkEvent || checkEvent.status !== 'approved') {
         return next(new ApiError(404, 'Event not found or not currently active for registration.'));
@@ -193,7 +195,6 @@ const registerForEvent = async (req, res, next) => {
       return next(new ApiError(400, 'This event is sold out. Capacity reached.'));
     }
 
-    // Generate cryptographically random, unguessable ticket code
     const ticketCode = `FD-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
 
     try {
@@ -226,7 +227,6 @@ const registerForEvent = async (req, res, next) => {
         )
       );
     } catch (saveErr) {
-      // If concurrent duplicate insert occurred, rollback the atomic seat increment!
       await Event.findByIdAndUpdate(id, { $inc: { registeredCount: -1 } });
       if (saveErr.code === 11000) {
         return next(new ApiError(409, 'You have already registered for this event.'));
@@ -238,7 +238,7 @@ const registerForEvent = async (req, res, next) => {
   }
 };
 
-// DELETE /api/v1/events/:id/register (Cancel and free seat atomically)
+// DELETE /api/v1/events/:id/register
 const cancelRegistration = async (req, res, next) => {
   try {
     const { id } = req.params;
@@ -256,7 +256,6 @@ const cancelRegistration = async (req, res, next) => {
     registration.status = 'cancelled';
     await registration.save();
 
-    // Free the seat atomically
     await Event.findOneAndUpdate(
       { _id: id, registeredCount: { $gt: 0 } },
       { $inc: { registeredCount: -1 } }
@@ -270,7 +269,7 @@ const cancelRegistration = async (req, res, next) => {
   }
 };
 
-// GET /api/v1/events/:slug/calendar.ics (RFC 5545 valid iCalendar file download)
+// GET /api/v1/events/:slug/calendar.ics
 const getEventIcs = async (req, res, next) => {
   try {
     const { slug } = req.params;
@@ -294,11 +293,26 @@ const getEventIcs = async (req, res, next) => {
   }
 };
 
-// POST /api/v1/events (Organizer / Admin)
+// POST /api/v1/events
 const createEvent = async (req, res, next) => {
   try {
-    const payload = req.body;
-    let baseSlug = createSlug(payload.title);
+    const {
+      title,
+      type,
+      city,
+      venue,
+      startDate,
+      endDate,
+      capacity,
+      ticketPrice,
+      description,
+      agenda,
+      speakers,
+      exhibitors,
+      coverImageUrl,
+    } = req.body;
+
+    let baseSlug = createSlug(title);
     let slug = baseSlug;
 
     let counter = 1;
@@ -308,10 +322,23 @@ const createEvent = async (req, res, next) => {
     }
 
     const event = new Event({
-      ...payload,
+      title,
       slug,
+      type,
+      city,
+      venue,
+      startDate,
+      endDate,
+      capacity,
+      ticketPrice: ticketPrice || 0,
+      description,
+      agenda,
+      speakers,
+      exhibitors,
+      coverImageUrl,
       organizer: req.user._id,
       status: req.user.role === 'admin' ? 'approved' : 'pending',
+      isSampleData: false,
     });
 
     await event.save();
@@ -322,7 +349,7 @@ const createEvent = async (req, res, next) => {
   }
 };
 
-// PUT /api/v1/events/:id (Organizer ownership check)
+// PUT /api/v1/events/:id
 const updateEvent = async (req, res, next) => {
   try {
     const { id } = req.params;
@@ -332,7 +359,6 @@ const updateEvent = async (req, res, next) => {
       return next(new ApiError(404, 'Event not found'));
     }
 
-    // STRICT IDOR: Only event organizer who created it (or admin) can edit
     const isOwner = event.organizer.toString() === req.user._id.toString();
     const isAdmin = req.user.role === 'admin';
 
@@ -340,7 +366,38 @@ const updateEvent = async (req, res, next) => {
       return next(new ApiError(403, 'Forbidden: You do not have permission to modify this event.'));
     }
 
-    Object.assign(event, req.body);
+    // Whitelist allowed fields (disallowing manual status, organizer, registeredCount manipulation)
+    const allowedFields = [
+      'title',
+      'type',
+      'city',
+      'venue',
+      'startDate',
+      'endDate',
+      'capacity',
+      'ticketPrice',
+      'description',
+      'agenda',
+      'speakers',
+      'exhibitors',
+      'coverImageUrl',
+    ];
+
+    const safeUpdate = {};
+    for (const f of allowedFields) {
+      if (req.body[f] !== undefined) {
+        safeUpdate[f] = req.body[f];
+      }
+    }
+
+    // Re-approval rule: if key field changed on approved event, reset to pending
+    if (!isAdmin && event.status === 'approved') {
+      if (hasKeyFieldChanged('event', safeUpdate, event)) {
+        safeUpdate.status = 'pending';
+      }
+    }
+
+    Object.assign(event, safeUpdate);
     await event.save();
 
     return res.status(200).json(new ApiResponse(200, { event }, 'Event updated successfully'));
@@ -349,7 +406,7 @@ const updateEvent = async (req, res, next) => {
   }
 };
 
-// DELETE /api/v1/events/:id (Organizer ownership check)
+// DELETE /api/v1/events/:id
 const deleteEvent = async (req, res, next) => {
   try {
     const { id } = req.params;
@@ -373,6 +430,50 @@ const deleteEvent = async (req, res, next) => {
   }
 };
 
+// GET /api/v1/events/:id/attendees.csv (Organizer & Admin Only, with Formula Injection Sanitization)
+const exportAttendeesCsv = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const event = await Event.findById(id);
+
+    if (!event) {
+      return next(new ApiError(404, 'Event not found'));
+    }
+
+    // Ownership check: organizer of this event or admin only
+    const isOwner = event.organizer.toString() === req.user._id.toString();
+    const isAdmin = req.user.role === 'admin';
+
+    if (!isOwner && !isAdmin) {
+      return next(new ApiError(403, 'Forbidden: You are not authorized to export attendees for this event.'));
+    }
+
+    const registrations = await EventRegistration.find({ event: event._id, status: 'confirmed' })
+      .populate('user', 'name email phone city company');
+
+    const rows = registrations.map((r) => ({
+      ticketCode: r.ticketCode,
+      name: r.user?.name || '',
+      email: r.user?.email || '',
+      phone: r.user?.phone || '',
+      city: r.user?.city || '',
+      registeredAt: r.createdAt ? new Date(r.createdAt).toISOString() : '',
+    }));
+
+    const csvContent = generateSanitizedCsv(
+      ['Ticket Code', 'Attendee Name', 'Email Address', 'Phone Number', 'City', 'Registration Timestamp'],
+      ['ticketCode', 'name', 'email', 'phone', 'city', 'registeredAt'],
+      rows
+    );
+
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${event.slug}-attendees.csv"`);
+    return res.status(200).send(csvContent);
+  } catch (err) {
+    next(err);
+  }
+};
+
 module.exports = {
   getEvents,
   getEventBySlug,
@@ -382,4 +483,5 @@ module.exports = {
   createEvent,
   updateEvent,
   deleteEvent,
+  exportAttendeesCsv,
 };

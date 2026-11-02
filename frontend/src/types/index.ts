@@ -7,13 +7,16 @@ export type UserRole =
 
 export interface User {
   id: string;
+  _id?: string;
   name: string;
   email: string;
   role: UserRole;
   phone?: string;
   city?: string;
   company?: string;
+  isActive?: boolean;
   isVerified?: boolean;
+  createdAt?: string;
 }
 
 // ─── Franchise Types ──────────────────────────────────────────────────────────
@@ -32,7 +35,9 @@ export interface Franchise {
   tagline: string;
   industry: string;
   status: 'pending' | 'approved' | 'rejected';
+  rejectionReason?: string;
   isSampleData?: boolean;
+  isSaved?: boolean;
   brandOwner: {
     _id: string;
     name: string;
@@ -64,11 +69,35 @@ export interface Franchise {
   createdAt?: string;
 }
 
+// ─── Lead & Scoring Types ─────────────────────────────────────────────────────
+
+export type LeadStatus = 'new' | 'under_review' | 'contacted' | 'converted' | 'rejected';
+
+export interface ScoreBreakdown {
+  budgetFit: number;
+  timelineUrgency: number;
+  profileCompleteness: number;
+  accountTrust: number;
+  messageQuality: number;
+}
+
+export interface StatusHistoryEntry {
+  from: string;
+  to: string;
+  by: string | User;
+  at: string;
+  reason?: string;
+}
+
 export interface Lead {
   _id: string;
-  investor: string | Partial<User>;
-  brandId: string | Partial<Franchise>;
-  brandOwner: string | Partial<User>;
+  investor: string | User;
+  targetType: 'franchise' | 'business';
+  targetId: string | Franchise | BusinessForSale | any;
+  targetModel?: 'Franchise' | 'BusinessForSale';
+  listingOwner: string | User;
+  brandId?: string | Franchise;
+  brandOwner?: string | User;
   fullName: string;
   email: string;
   phone: string;
@@ -78,9 +107,47 @@ export interface Lead {
   hasCommercialSpace: boolean;
   spaceAvailableSqFt?: number;
   message: string;
-  status: 'new' | 'under_review' | 'contacted' | 'converted' | 'rejected';
+  status: LeadStatus;
+  statusHistory?: StatusHistoryEntry[];
   leadScore: number;
+  scoreBreakdown?: ScoreBreakdown;
   notes?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface PipelineCounts {
+  new: number;
+  under_review: number;
+  contacted: number;
+  converted: number;
+  rejected: number;
+  total: number;
+  avgScore: number;
+}
+
+// ─── Message Types ────────────────────────────────────────────────────────────
+
+export interface Message {
+  _id: string;
+  lead: string | Lead;
+  sender: string | User;
+  recipient: string | User;
+  body: string;
+  read: boolean;
+  readAt?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+// ─── Saved Listing Types ──────────────────────────────────────────────────────
+
+export interface SavedListing {
+  _id: string;
+  user: string | User;
+  targetType: 'franchise' | 'event' | 'business';
+  targetId: string | Franchise | Event | BusinessForSale | any;
+  targetModel: 'Franchise' | 'Event' | 'BusinessForSale';
   createdAt?: string;
 }
 
@@ -90,23 +157,23 @@ export type EventType = 'exhibition' | 'investor_summit' | 'networking' | 'webin
 
 export interface EventSpeaker {
   name: string;
-  designation: string;
-  company: string;
-  photoUrl?: string;
+  title?: string;
+  org?: string;
+  designation?: string;
+  company?: string;
   topic?: string;
+  photoUrl?: string;
 }
 
 export interface EventAgendaItem {
   time: string;
   title: string;
   description?: string;
-  speaker?: string;
-  type: 'keynote' | 'panel' | 'workshop' | 'networking' | 'break';
 }
 
 export interface EventExhibitor {
   name: string;
-  logoUrl?: string;
+  boothNo?: string;
   boothNumber?: string;
   industry?: string;
 }
@@ -124,7 +191,7 @@ export interface Event {
   registeredCount: number;
   ticketPrice: number;
   description: string;
-  bannerImageUrl?: string;
+  coverImageUrl?: string;
   organizer: {
     _id: string;
     name: string;
@@ -135,9 +202,10 @@ export interface Event {
   speakers?: EventSpeaker[];
   agenda?: EventAgendaItem[];
   exhibitors?: EventExhibitor[];
-  tags?: string[];
   status: 'pending' | 'approved' | 'rejected';
+  rejectionReason?: string;
   isSampleData?: boolean;
+  isSaved?: boolean;
   isVerified?: boolean;
   createdAt?: string;
 }
@@ -188,8 +256,10 @@ export interface BusinessForSale {
   askingPriceBand: string;
   summary: string;
   status: 'pending' | 'approved' | 'rejected';
+  rejectionReason?: string;
   isSampleData?: boolean;
   isVerified?: boolean;
+  isSaved?: boolean;
   seller?: {
     id: string;
     name: string;
@@ -217,6 +287,50 @@ export interface PaginatedBusinesses {
   page: number;
   limit: number;
   totalPages: number;
+}
+
+// ─── Dashboard Metric Types ───────────────────────────────────────────────────
+
+export interface InvestorDashboardData {
+  inquiries: Lead[];
+  savedListings: SavedListing[];
+  rsvps: EventRegistration[];
+  ndas: NdaAgreement[];
+}
+
+export interface BrandOwnerDashboardData {
+  franchises: Franchise[];
+  leadsSummary: {
+    total: number;
+    newThisWeek: number;
+    avgScore: number;
+    pipelineCounts: Record<LeadStatus, number>;
+  };
+  brochuresSummary: {
+    totalDownloads: number;
+    uniqueDownloads: number;
+  };
+}
+
+export interface BusinessSellerDashboardData {
+  businesses: BusinessForSale[];
+  inquiries: Lead[];
+  executedNdas: any[];
+}
+
+export interface EventOrganizerDashboardData {
+  events: Event[];
+  totalEvents: number;
+  totalRegistrations: number;
+}
+
+export interface AdminDashboardData {
+  usersByRole: Record<string, number>;
+  franchisesByStatus: Record<string, number>;
+  eventsByStatus: Record<string, number>;
+  businessesByStatus: Record<string, number>;
+  leadsThisWeek: number;
+  totalRegistrations: number;
 }
 
 // ─── Generic API Response Wrapper ─────────────────────────────────────────────

@@ -3,6 +3,8 @@
  * Enforces strict, server-side confidentiality gating.
  * Protected fields are ONLY included if the viewer is the listing seller,
  * a platform admin, or has executed a valid NdaAgreement.
+ * 
+ * STRICT RULE: When viewer lacks access, protectedFinancials is OMITTED entirely (no key, no null).
  */
 
 const PROTECTED_KEYS = [
@@ -49,6 +51,7 @@ const serializeBusiness = (doc, viewer = null, hasNda = false, isList = false) =
     askingPriceBand: raw.askingPriceBand,
     summary: raw.summary,
     status: raw.status,
+    rejectionReason: raw.rejectionReason || null,
     isVerified: raw.isVerified,
     isSampleData: raw.isSampleData,
     createdAt: raw.createdAt,
@@ -63,7 +66,7 @@ const serializeBusiness = (doc, viewer = null, hasNda = false, isList = false) =
     };
   }
 
-  // Only include protectedFinancials sub-document if authorized
+  // ONLY attach protectedFinancials if authorized; otherwise omit key completely
   if (canAccessProtected && raw.protectedFinancials) {
     serialized.protectedFinancials = {
       exactRevenue: raw.protectedFinancials.exactRevenue ?? 0,

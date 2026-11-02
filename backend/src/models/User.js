@@ -43,6 +43,11 @@ const userSchema = new mongoose.Schema(
       trim: true,
       default: '',
     },
+    isActive: {
+      type: Boolean,
+      default: true,
+      index: true,
+    },
     // Sessions with hashed refresh tokens for cryptographic rotation & reuse detection
     sessions: [
       {

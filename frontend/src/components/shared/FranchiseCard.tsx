@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/Button';
 import BorderGlowCard from '@/components/animations/BorderGlowCard';
 import HoverLift from '@/components/animations/HoverLift';
 import InquiryModal from '@/components/shared/InquiryModal';
+import SaveButton from '@/components/shared/SaveButton';
 import {
   TrendingUp,
   Maximize2,
@@ -60,9 +61,17 @@ export default function FranchiseCard({ franchise }: FranchiseCardProps) {
                 </div>
               </div>
 
-              {franchise.isFeatured && (
-                <Badge variant="featured" size="sm">Featured</Badge>
-              )}
+              <div className="flex items-center gap-2">
+                {franchise.isFeatured && (
+                  <Badge variant="featured" size="sm">Featured</Badge>
+                )}
+                <SaveButton
+                  targetType="franchise"
+                  targetId={franchise._id}
+                  initialSaved={franchise.isSaved}
+                  size="sm"
+                />
+              </div>
             </div>
 
             {/* Sample listing badge (carry-over fix: seed uses fictional brands) */}

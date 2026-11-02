@@ -29,6 +29,11 @@ const authenticate = async (req, res, next) => {
       return next(new ApiError(401, 'User associated with this token no longer exists.'));
     }
 
+    // STRICT CHECK: Reject deactivated users immediately on every request
+    if (user.isActive === false) {
+      return next(new ApiError(403, 'Your account has been deactivated. Please contact support.'));
+    }
+
     req.user = user;
     next();
   } catch (error) {

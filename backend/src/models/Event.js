@@ -95,6 +95,10 @@ const eventSchema = new mongoose.Schema(
       default: 'pending',
       index: true,
     },
+    rejectionReason: {
+      type: String,
+      default: null,
+    },
     isSampleData: {
       type: Boolean,
       default: false,

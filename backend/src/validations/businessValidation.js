@@ -40,7 +40,7 @@ const signNdaSchema = z.object({
   accepted: z.literal(true, {
     errorMap: () => ({ message: 'You must explicitly accept the terms of confidentiality' }),
   }),
-  agreementVersion: z.string().optional().default('v1.0'),
+  agreementVersion: z.string().min(1, 'Agreement version is required'),
 });
 
 module.exports = {

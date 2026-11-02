@@ -8,16 +8,42 @@ const leadSchema = new mongoose.Schema(
       required: true,
       index: true,
     },
+    targetType: {
+      type: String,
+      enum: ['franchise', 'business'],
+      required: true,
+      default: 'franchise',
+      index: true,
+    },
+    targetId: {
+      type: mongoose.Schema.Types.ObjectId,
+      required: true,
+      refPath: 'targetModel',
+      index: true,
+    },
+    targetModel: {
+      type: String,
+      required: true,
+      enum: ['Franchise', 'BusinessForSale'],
+      default: 'Franchise',
+    },
+    // Backwards-compatible alias for existing franchise tests & code
     brandId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Franchise',
-      required: true,
       index: true,
     },
-    brandOwner: {
+    // The listing owner (franchise brand owner or business seller)
+    listingOwner: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
       required: true,
+      index: true,
+    },
+    // Backwards-compatible alias for brandOwner
+    brandOwner: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
       index: true,
     },
     fullName: {
@@ -69,11 +95,27 @@ const leadSchema = new mongoose.Schema(
       default: 'new',
       index: true,
     },
+    statusHistory: [
+      {
+        from: { type: String, required: true },
+        to: { type: String, required: true },
+        by: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+        at: { type: Date, default: Date.now },
+        reason: { type: String, default: '' },
+      },
+    ],
     leadScore: {
       type: Number,
       min: 0,
       max: 100,
       default: 75,
+    },
+    scoreBreakdown: {
+      budgetFit: { type: Number, default: 0 },
+      timelineUrgency: { type: Number, default: 0 },
+      profileCompleteness: { type: Number, default: 0 },
+      accountTrust: { type: Number, default: 0 },
+      messageQuality: { type: Number, default: 0 },
     },
     notes: {
       type: String,
@@ -83,8 +125,20 @@ const leadSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-// Compound index as required by architecture specifications
-leadSchema.index({ brandId: 1, status: 1 });
-leadSchema.index({ brandOwner: 1, status: 1 });
+// Compound indexes for rapid lookups and abuse prevention
+leadSchema.index({ targetType: 1, targetId: 1, status: 1 });
+leadSchema.index({ listingOwner: 1, status: 1 });
+leadSchema.index({ investor: 1, targetId: 1, status: 1 });
+
+// Synchronize legacy aliases
+leadSchema.pre('save', function (next) {
+  if (this.targetType === 'franchise') {
+    if (!this.brandId && this.targetId) this.brandId = this.targetId;
+    if (!this.targetId && this.brandId) this.targetId = this.brandId;
+  }
+  if (!this.brandOwner && this.listingOwner) this.brandOwner = this.listingOwner;
+  if (!this.listingOwner && this.brandOwner) this.listingOwner = this.brandOwner;
+  next();
+});
 
 module.exports = mongoose.model('Lead', leadSchema);

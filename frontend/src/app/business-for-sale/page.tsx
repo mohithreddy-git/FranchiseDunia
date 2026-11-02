@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Skeleton } from '@/components/ui/Skeleton';
 import BorderGlowCard from '@/components/animations/BorderGlowCard';
+import SaveButton from '@/components/shared/SaveButton';
 import {
   Briefcase,
   Shield,
@@ -71,7 +72,15 @@ function BusinessCard({ business }: { business: BusinessForSale }) {
             {business.industry}
           </span>
         </div>
-        {business.isSampleData && <Badge variant="slate" size="sm">Sample</Badge>}
+        <div className="flex items-center gap-2">
+          {business.isSampleData && <Badge variant="slate" size="sm">Sample</Badge>}
+          <SaveButton
+            targetType="business"
+            targetId={business._id}
+            initialSaved={business.isSaved}
+            size="sm"
+          />
+        </div>
       </div>
 
       {/* Title */}

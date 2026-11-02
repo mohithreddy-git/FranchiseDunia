@@ -22,6 +22,9 @@ const eventRoutes = require('./src/routes/eventRoutes');
 const businessRoutes = require('./src/routes/businessRoutes');
 const adminRoutes = require('./src/routes/adminRoutes');
 const leadRoutes = require('./src/routes/leadRoutes');
+const messageRoutes = require('./src/routes/messageRoutes');
+const savedRoutes = require('./src/routes/savedRoutes');
+const dashboardRoutes = require('./src/routes/dashboardRoutes');
 
 const app = express();
 const PORT = process.env.PORT || 5001;
@@ -56,7 +59,23 @@ app.use(cookieParser());
 
 // 4. Data Sanitization against NoSQL query injection & HTTP Parameter Pollution
 app.use(mongoSanitize());
-app.use(hpp({ whitelist: ['industry', 'city', 'availableLocations', 'sortBy', 'page', 'limit', 'type', 'region'] }));
+app.use(
+  hpp({
+    whitelist: [
+      'industry',
+      'city',
+      'availableLocations',
+      'sortBy',
+      'sort',
+      'page',
+      'limit',
+      'type',
+      'region',
+      'targetType',
+      'status',
+    ],
+  })
+);
 
 // 5. CSRF Protection for mutating requests
 app.use(csrfProtection);
@@ -99,13 +118,16 @@ app.use('/api/v1/events', eventRoutes);
 app.use('/api/v1/business-for-sale', businessRoutes);
 app.use('/api/v1/admin', adminRoutes);
 app.use('/api/v1/leads', leadRoutes);
+app.use('/api/v1', messageRoutes); // Mounts /messages and /leads/:id/messages
+app.use('/api/v1/saved', savedRoutes);
+app.use('/api/v1/dashboard', dashboardRoutes);
 
-// 9. Catch-all for undefined routes
+// 10. Catch-all for undefined routes
 app.all('*', (req, res, next) => {
   next(new ApiError(404, `Cannot find ${req.method} ${req.originalUrl} on this server`));
 });
 
-// 10. Centralized Error Handler
+// 11. Centralized Error Handler
 app.use(errorHandler);
 
 // Server initialization logic

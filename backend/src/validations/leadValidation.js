@@ -1,7 +1,9 @@
 const { z } = require('zod');
 
 const createLeadSchema = z.object({
-  brandId: z.string().min(1, 'Brand ID is required'),
+  targetType: z.enum(['franchise', 'business']).optional().default('franchise'),
+  targetId: z.string().optional(),
+  brandId: z.string().optional(), // Legacy alias
   fullName: z.string().min(2, 'Full name is required').max(100),
   email: z.string().email('Please enter a valid email address'),
   phone: z.string().min(8, 'Phone number must be at least 8 digits'),
@@ -17,8 +19,9 @@ const createLeadSchema = z.object({
 });
 
 const updateLeadStatusSchema = z.object({
-  status: z.enum(['new', 'under_review', 'contacted', 'converted', 'rejected']),
-  notes: z.string().max(500).optional(),
+  status: z.enum(['new', 'under_review', 'contacted', 'converted', 'rejected']).optional(),
+  notes: z.string().max(1000).optional(),
+  reason: z.string().max(500).optional(),
 });
 
 module.exports = {

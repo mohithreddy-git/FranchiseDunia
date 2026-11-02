@@ -4,6 +4,7 @@ const router = express.Router();
 const {
   createLead,
   getLeads,
+  getPipelineCounts,
   getLeadById,
   updateLeadStatus,
 } = require('../controllers/leadController');
@@ -20,6 +21,7 @@ router.use(authenticate);
 
 router.post('/', validate(createLeadSchema), createLead);
 router.get('/', getLeads);
+router.get('/pipeline-counts', getPipelineCounts);
 router.get('/:id', getLeadById);
 router.patch('/:id/status', validate(updateLeadStatusSchema), updateLeadStatus);
 

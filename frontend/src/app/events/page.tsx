@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Skeleton } from '@/components/ui/Skeleton';
 import BorderGlowCard from '@/components/animations/BorderGlowCard';
+import SaveButton from '@/components/shared/SaveButton';
 import {
   Calendar,
   MapPin,
@@ -52,15 +53,23 @@ function EventCard({ event }: { event: Event }) {
 
   return (
     <BorderGlowCard className="flex flex-col h-full group p-5 hover:border-primary/40 transition-colors">
-      {/* Type + City badges */}
+      {/* Type + City badges + Save */}
       <div className="flex items-center justify-between gap-2 mb-3">
-        <Badge variant="emerald" size="sm">
-          {event.type === 'investor_summit' ? 'Investor Summit' :
-           event.type === 'exhibition' ? 'Exhibition' :
-           event.type === 'networking' ? 'Networking' : 'Webinar'}
-        </Badge>
-        {event.isSampleData && <Badge variant="amber" size="sm">Sample</Badge>}
-        {isSoldOut && <Badge variant="amber" size="sm">Sold Out</Badge>}
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <Badge variant="emerald" size="sm">
+            {event.type === 'investor_summit' ? 'Investor Summit' :
+             event.type === 'exhibition' ? 'Exhibition' :
+             event.type === 'networking' ? 'Networking' : 'Webinar'}
+          </Badge>
+          {event.isSampleData && <Badge variant="amber" size="sm">Sample</Badge>}
+          {isSoldOut && <Badge variant="amber" size="sm">Sold Out</Badge>}
+        </div>
+        <SaveButton
+          targetType="event"
+          targetId={event._id}
+          initialSaved={event.isSaved}
+          size="sm"
+        />
       </div>
 
       {/* Title */}

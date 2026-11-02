@@ -126,6 +126,11 @@ export default function Navbar() {
 
           {user ? (
             <div className="flex items-center gap-3">
+              <Link href="/dashboard">
+                <Button variant="secondary" size="sm" className="text-xs">
+                  Dashboard
+                </Button>
+              </Link>
               <div className="hidden sm:flex flex-col text-right">
                 <span className="text-xs font-semibold text-foreground">{user.name}</span>
                 <span className="text-[10px] uppercase font-mono text-primary font-medium">
