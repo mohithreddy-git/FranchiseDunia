@@ -1,5 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  output: 'standalone',
   reactStrictMode: true,
   images: {
     remotePatterns: [
@@ -10,10 +11,11 @@ const nextConfig = {
     ],
   },
   async rewrites() {
+    const backendUrl = process.env.BACKEND_URL || 'http://localhost:5001/api';
     return [
       {
         source: '/api/:path*',
-        destination: 'http://localhost:5001/api/:path*',
+        destination: `${backendUrl}/:path*`,
       },
     ];
   },

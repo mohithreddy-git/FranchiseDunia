@@ -95,7 +95,7 @@ const globalLimiter = rateLimit({
 app.use('/api', globalLimiter);
 
 // 8. Healthcheck Route
-app.get('/api/health', (req, res) => {
+app.get(['/health', '/api/health'], (req, res) => {
   res.status(200).json(
     new ApiResponse(
       200,
